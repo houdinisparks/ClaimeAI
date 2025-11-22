@@ -2,13 +2,15 @@
 
 import logging
 import os
+import asyncio
+import httpx
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi import FastAPI, HTTPException, Security, Depends, BackgroundTasks
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 from claim_extractor.agent import create_graph as create_claim_extractor_graph
 from claim_verifier.agent import create_graph as create_claim_verifier_graph
@@ -101,6 +103,10 @@ class FactCheckerRequest(BaseModel):
     """Request model for full fact-checking."""
 
     answer: str = Field(description="The text to fact-check")
+    callback_url: Optional[HttpUrl] = Field(
+        default=None, 
+        description="Optional URL to POST the results to when processing completes"
+    )
 
 
 class WorkflowResponse(BaseModel):
@@ -108,6 +114,14 @@ class WorkflowResponse(BaseModel):
 
     status: str = Field(description="Status of the workflow execution")
     result: Dict[str, Any] = Field(description="The workflow result")
+
+
+class JobAcceptedResponse(BaseModel):
+    """Response model for accepted background job."""
+
+    status: str = Field(description="Status of the job submission")
+    message: str = Field(description="Human-readable message")
+    job_id: Optional[str] = Field(default=None, description="Unique identifier for the background job")
 
 
 # API Endpoints
@@ -130,24 +144,18 @@ async def health():
     }
 
 
-@app.post("/fact-check", response_model=WorkflowResponse)
-async def fact_check(request: FactCheckerRequest, api_key: str = Depends(verify_api_key)):
-    """Run the complete fact-checking pipeline on text.
-
-    This endpoint orchestrates the full fact-checking workflow:
-    1. Extract claims from input text
-    2. Verify each claim in parallel
-    3. Generate a comprehensive report
-    """
+async def process_fact_check_job(text: str, callback_url: Optional[str] = None, job_id: Optional[str] = None):
+    """Background task to process fact-checking and send results to callback URL."""
     try:
         graph = graphs.get("fact_checker")
         if not graph:
-            raise HTTPException(status_code=503, detail="Fact checker not available")
+            logger.error("Fact checker not available in background job")
+            return
 
-        logger.info(f"Fact-checking text: {request.answer[:100]}...")
+        logger.info(f"[Job {job_id}] Starting fact-check for text: {text[:100]}...")
 
         # Invoke the graph asynchronously
-        result = await graph.ainvoke({"answer": request.answer})
+        result = await graph.ainvoke({"answer": text})
 
         final_report = result.get("final_report")
         
@@ -161,16 +169,98 @@ async def fact_check(request: FactCheckerRequest, api_key: str = Depends(verify_
                 for source in sources:
                     source.pop("text", None)  # Remove "text" key if it exists
         
-        return WorkflowResponse(
-            status="success",
-            result={
+        workflow_result = {
+            "status": "success",
+            "job_id": job_id,
+            "result": {
                 "final_report": final_report_dict,
                 "claims_extracted": len(result.get("extracted_claims", [])),
                 "claims_verified": len(result.get("verification_results", [])),
             },
-        )
+        }
+
+        logger.info(f"[Job {job_id}] Fact-check completed successfully")
+
+        # Send results to callback URL if provided
+        if callback_url:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    logger.info(f"[Job {job_id}] Sending results to callback URL: {callback_url}")
+                    response = await client.post(
+                        callback_url,
+                        json=workflow_result,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    response.raise_for_status()
+                    logger.info(f"[Job {job_id}] Successfully sent results to callback URL. Status: {response.status_code}")
+            except httpx.HTTPError as e:
+                logger.error(f"[Job {job_id}] Failed to send results to callback URL: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(f"[Job {job_id}] Unexpected error sending to callback URL: {e}", exc_info=True)
+        else:
+            logger.info(f"[Job {job_id}] No callback URL provided, results not sent")
+
     except Exception as e:
-        logger.error(f"Error fact-checking: {e}", exc_info=True)
+        logger.error(f"[Job {job_id}] Error in background fact-checking job: {e}", exc_info=True)
+        
+        # Send error to callback URL if provided
+        if callback_url:
+            try:
+                error_result = {
+                    "status": "error",
+                    "job_id": job_id,
+                    "error": str(e),
+                }
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    await client.post(callback_url, json=error_result)
+            except Exception as callback_error:
+                logger.error(f"[Job {job_id}] Failed to send error to callback URL: {callback_error}")
+
+
+@app.post("/fact-check", response_model=JobAcceptedResponse)
+async def fact_check(
+    request: FactCheckerRequest, 
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(verify_api_key)
+):
+    """Run the complete fact-checking pipeline on text as a background job.
+
+    This endpoint orchestrates the full fact-checking workflow:
+    1. Extract claims from input text
+    2. Verify each claim in parallel
+    3. Generate a comprehensive report
+    4. Send results to callback_url if provided
+
+    The workflow runs asynchronously in the background. Results are sent to the
+    callback_url via HTTP POST when processing completes.
+    """
+    try:
+        graph = graphs.get("fact_checker")
+        if not graph:
+            raise HTTPException(status_code=503, detail="Fact checker not available")
+
+        # Generate a simple job ID
+        import uuid
+        job_id = str(uuid.uuid4())[:8]
+
+        logger.info(f"[Job {job_id}] Accepting fact-check job for text: {request.answer[:100]}...")
+        
+        # Add the background task
+        background_tasks.add_task(
+            process_fact_check_job,
+            text=request.answer,
+            callback_url=str(request.callback_url) if request.callback_url else None,
+            job_id=job_id
+        )
+
+        return JobAcceptedResponse(
+            status="accepted",
+            message="Fact-checking job started. Results will be sent to callback URL when complete.",
+            job_id=job_id
+        )
+
+    except Exception as e:
+        logger.error(f"Error accepting fact-check job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
