@@ -2,6 +2,16 @@
 
 This directory contains the implementation of the fact-checking system's core functionality. While the [main README](../../README.md) provides a high-level overview and usage examples, this document focuses on the technical architecture and how the agent workflows are implemented.
 
+## 🚀 FastAPI Server
+
+The agents are now wrapped with a **FastAPI server** that provides REST API endpoints to trigger the workflows. See [api/API.md](./api/API.md) for complete documentation.
+
+**Quick start:**
+```bash
+poetry run uvicorn api.main:app --reload
+# Visit http://localhost:8000/docs for interactive API documentation
+```
+
 ![Fact Checker MAS](https://cloud.imbharath.com/fact-checker-mas.png)
 
 ## 🏗️ Technical Architecture

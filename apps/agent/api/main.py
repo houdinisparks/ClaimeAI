@@ -1,10 +1,12 @@
 """FastAPI server for LangGraph fact-checking workflows."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,25 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# API Key Authentication
+API_KEY = os.getenv("API_KEY")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    """Verify the API key from the request header."""
+    if not API_KEY:
+        logger.warning("API_KEY not set in environment variables - API is unprotected!")
+        return api_key
+    
+    if api_key is None or api_key != API_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing API key. Include X-API-Key header.",
+        )
+    return api_key
+
 
 # Global graph instances
 graphs = {}
@@ -109,103 +130,8 @@ async def health():
     }
 
 
-@app.post("/extract-claims", response_model=WorkflowResponse)
-async def extract_claims(request: ClaimExtractorRequest):
-    """Extract verifiable claims from text.
-
-    This endpoint processes text through the claim extraction pipeline:
-    1. Split text into contextual sentences
-    2. Filter for sentences with factual content
-    3. Resolve ambiguities like pronouns
-    4. Extract specific atomic claims
-    5. Validate claims are properly formed
-    """
-    try:
-        graph = graphs.get("claim_extractor")
-        if not graph:
-            raise HTTPException(status_code=503, detail="Claim extractor not available")
-
-        logger.info(f"Extracting claims from text: {request.text[:100]}...")
-
-        # Invoke the graph asynchronously
-        result = await graph.ainvoke({"text": request.text})
-
-        return WorkflowResponse(
-            status="success",
-            result={
-                "text": result.get("text"),
-                "validated_claims": [
-                    claim.model_dump() for claim in result.get("validated_claims", [])
-                ],
-            },
-        )
-    except Exception as e:
-        logger.error(f"Error extracting claims: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/verify-claim", response_model=WorkflowResponse)
-async def verify_claim(request: ClaimVerifierRequest):
-    """Verify a single claim using iterative evidence gathering.
-
-    This endpoint processes a claim through the verification pipeline:
-    1. Generate search queries
-    2. Retrieve evidence from web search
-    3. Decide whether to continue searching
-    4. Evaluate evidence and make a verdict
-    """
-    try:
-        graph = graphs.get("claim_verifier")
-        if not graph:
-            raise HTTPException(status_code=503, detail="Claim verifier not available")
-
-        logger.info(f"Verifying claim: {request.claim}")
-
-        # Create ValidatedClaim object for the graph
-        from claim_extractor.schemas import (
-            ValidatedClaim,
-            PotentialClaim,
-            DisambiguatedContent,
-            SelectedContent,
-            ContextualSentence,
-        )
-
-        validated_claim = ValidatedClaim(
-            verified_claim=PotentialClaim(
-                claim_text=request.claim,
-                original_disambiguated_item=DisambiguatedContent(
-                    disambiguated_sentence=request.disambiguated_sentence,
-                    original_selected_item=SelectedContent(
-                        processed_sentence=request.original_sentence,
-                        original_context_item=ContextualSentence(
-                            original_sentence=request.original_sentence,
-                            context_for_llm=request.original_sentence,
-                            original_index=request.original_index,
-                        ),
-                    ),
-                ),
-            )
-        )
-
-        # Invoke the graph asynchronously
-        result = await graph.ainvoke({"claim": validated_claim})
-
-        verdict = result.get("verdict")
-        return WorkflowResponse(
-            status="success",
-            result={
-                "verdict": verdict.model_dump() if verdict else None,
-                "evidence_count": len(result.get("evidence", [])),
-                "iterations": result.get("iteration_count", 0),
-            },
-        )
-    except Exception as e:
-        logger.error(f"Error verifying claim: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/fact-check", response_model=WorkflowResponse)
-async def fact_check(request: FactCheckerRequest):
+async def fact_check(request: FactCheckerRequest, api_key: str = Depends(verify_api_key)):
     """Run the complete fact-checking pipeline on text.
 
     This endpoint orchestrates the full fact-checking workflow:
@@ -234,42 +160,6 @@ async def fact_check(request: FactCheckerRequest):
         )
     except Exception as e:
         logger.error(f"Error fact-checking: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/workflows/{workflow_name}/invoke")
-async def invoke_workflow(workflow_name: str, input_data: Dict[str, Any]):
-    """Generic endpoint to invoke any workflow by name.
-
-    Args:
-        workflow_name: One of 'claim_extractor', 'claim_verifier', 'fact_checker'
-        input_data: The input state for the workflow
-    """
-    try:
-        graph = graphs.get(workflow_name)
-        if not graph:
-            raise HTTPException(
-                status_code=404, detail=f"Workflow '{workflow_name}' not found"
-            )
-
-        logger.info(f"Invoking workflow: {workflow_name}")
-
-        # Invoke the graph asynchronously
-        result = await graph.ainvoke(input_data)
-
-        # Convert Pydantic models to dicts for JSON serialization
-        serialized_result = {}
-        for key, value in result.items():
-            if hasattr(value, "model_dump"):
-                serialized_result[key] = value.model_dump()
-            elif isinstance(value, list) and value and hasattr(value[0], "model_dump"):
-                serialized_result[key] = [item.model_dump() for item in value]
-            else:
-                serialized_result[key] = value
-
-        return WorkflowResponse(status="success", result=serialized_result)
-    except Exception as e:
-        logger.error(f"Error invoking workflow {workflow_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

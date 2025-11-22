@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      # API Authentication
+      - API_KEY=${API_KEY}
+      # Required LLM providers
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      # Optional providers
+      - EXA_API_KEY=${EXA_API_KEY}
+      # Optional: LangSmith tracing
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING}
+      # Optional: Database
+      - DATABASE_URI=${DATABASE_URI}
+      - REDIS_URI=${REDIS_URI}
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    networks:
+      - claime-network
+
+networks:
+  claime-network:
+    driver: bridge

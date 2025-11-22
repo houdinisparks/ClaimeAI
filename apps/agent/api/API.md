@@ -11,12 +11,6 @@ poetry install
 
 # Run the server
 poetry run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-
-# Or use the run script
-poetry run python api/run_server.py
-
-# Test the API
-poetry run python api/test_api.py
 ```
 
 The API will be available at `http://localhost:8000` and interactive docs at `http://localhost:8000/docs`.
@@ -55,6 +49,23 @@ poetry run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```bash
 poetry run uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
+
+## Authentication
+
+All endpoints (except `/` and `/health`) require API key authentication via the `X-API-Key` header.
+
+Set the `API_KEY` environment variable:
+
+```bash
+export API_KEY=your-secure-api-key-here
+```
+
+Or in your `.env` file:
+```env
+API_KEY=your-secure-api-key-here
+```
+
+**Note**: If `API_KEY` is not set, the API will run without authentication (for development only).
 
 ## API Endpoints
 
@@ -107,24 +118,6 @@ Content-Type: application/json
 }
 ```
 
-### Generic Workflow Invocation
-
-Invoke any workflow directly:
-
-```bash
-POST /workflows/{workflow_name}/invoke
-Content-Type: application/json
-
-{
-  "answer": "Text to fact-check..."
-}
-```
-
-Where `workflow_name` can be:
-- `claim_extractor`
-- `claim_verifier`
-- `fact_checker`
-
 ## API Documentation
 
 Once the server is running, visit:
@@ -139,6 +132,7 @@ Once the server is running, visit:
 ```bash
 curl -X POST "http://localhost:8000/extract-claims" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key-here" \
   -d '{
     "text": "Climate change is causing sea levels to rise. The temperature has increased by 1.5 degrees Celsius since pre-industrial times."
   }'
@@ -149,6 +143,7 @@ curl -X POST "http://localhost:8000/extract-claims" \
 ```bash
 curl -X POST "http://localhost:8000/fact-check" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key-here" \
   -d '{
     "answer": "The Eiffel Tower is 330 meters tall and was completed in 1889."
   }'
@@ -159,9 +154,16 @@ curl -X POST "http://localhost:8000/fact-check" \
 ```python
 import requests
 
+API_KEY = "your-api-key-here"
+headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": API_KEY
+}
+
 # Extract claims
 response = requests.post(
     "http://localhost:8000/extract-claims",
+    headers=headers,
     json={"text": "Your text here..."}
 )
 result = response.json()
@@ -170,6 +172,7 @@ print(result)
 # Fact check
 response = requests.post(
     "http://localhost:8000/fact-check",
+    headers=headers,
     json={"answer": "Your text to fact-check..."}
 )
 result = response.json()
@@ -181,9 +184,24 @@ print(result)
 Make sure you have the required environment variables set in your `.env` file:
 
 ```env
-OPENAI_API_KEY=your_key_here
-TAVILY_API_KEY=your_key_here
-# Add other required API keys
+# API Authentication
+API_KEY=your-secure-api-key-here
+
+# Required: LLM Provider Keys
+OPENAI_API_KEY=sk-proj-your-key-here
+GEMINI_API_KEY=AIzaSy-your-key-here
+TAVILY_API_KEY=tvly-dev-your-key-here
+
+# Optional: Additional search provider
+EXA_API_KEY=your-exa-key
+
+# Optional: LangSmith tracing for debugging
+LANGSMITH_API_KEY=lsv2_pt_your-key-here
+LANGSMITH_TRACING=true
+
+# Optional: Database for persistence
+DATABASE_URI=your-database-uri
+REDIS_URI=redis://localhost:6379
 ```
 
 ## CORS Configuration
@@ -205,6 +223,7 @@ app.add_middleware(
 All endpoints return proper HTTP status codes:
 
 - `200` - Success
+- `403` - Invalid or missing API key
 - `404` - Workflow not found
 - `500` - Internal server error
 - `503` - Service unavailable (graph not initialized)
@@ -220,3 +239,14 @@ Error responses include a `detail` field with the error message:
 ## Logging
 
 The server logs all requests and errors. Check the console output for debugging information.
+
+## Deployment
+
+For deploying to Fly.io with API key authentication in the London region, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
+The deployment includes:
+- API key authentication via `X-API-Key` header
+- London region (lhr) hosting
+- 2 CPUs and 2GB RAM for LLM workflows
+- Auto-scaling capabilities
+- HTTPS enforcement
