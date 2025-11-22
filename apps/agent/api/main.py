@@ -150,10 +150,21 @@ async def fact_check(request: FactCheckerRequest, api_key: str = Depends(verify_
         result = await graph.ainvoke({"answer": request.answer})
 
         final_report = result.get("final_report")
+        
+        # Remove "text" field from sources in verified_claims (safe navigation)
+        final_report_dict = None
+        if final_report:
+            final_report_dict = final_report.model_dump()
+            verified_claims = final_report_dict.get("verified_claims", [])
+            for claim in verified_claims:
+                sources = claim.get("sources", [])
+                for source in sources:
+                    source.pop("text", None)  # Remove "text" key if it exists
+        
         return WorkflowResponse(
             status="success",
             result={
-                "final_report": final_report.model_dump() if final_report else None,
+                "final_report": final_report_dict,
                 "claims_extracted": len(result.get("extracted_claims", [])),
                 "claims_verified": len(result.get("verification_results", [])),
             },
