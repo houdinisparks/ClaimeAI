@@ -6,7 +6,7 @@ Access to language models and related configuration.
 from claim_extractor.llm.config import (
     DEFAULT_TEMPERATURE,
     MODEL_NAME,
-    MULTI_COMPLETION_TEMPERATURE,
+#    MULTI_COMPLETION_TEMPERATURE,
 )
 
 __all__ = [
@@ -16,5 +16,5 @@ __all__ = [
     # Config
     "MODEL_NAME",
     "DEFAULT_TEMPERATURE",
-    "MULTI_COMPLETION_TEMPERATURE",
+#    "MULTI_COMPLETION_TEMPERATURE",
 ]

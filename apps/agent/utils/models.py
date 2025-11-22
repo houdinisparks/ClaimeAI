@@ -10,7 +10,7 @@ from utils.settings import settings
 
 
 def get_llm(
-    model_name: str = "openai:gpt-4o-mini",
+    model_name: str = "openai:gpt-5",
     temperature: float = 0.0,
     completions: int = 1,
 ) -> BaseChatModel:
@@ -28,13 +28,17 @@ def get_llm(
     if completions > 1 and temperature == 0.0:
         temperature = 0.2
 
-    if not settings.openai_api_key:
-        raise ValueError("OpenAI API key not found in environment variables")
+    # Determine which API key to use based on model provider
+    is_gemini = model_name.startswith("google_genai:")
+    is_gpt_5 = "gpt-5" in model_name.lower()
 
+    
+    # All other models (Gemini, GPT-4, etc.) use standard configuration
     return init_chat_model(
         model=model_name,
-        api_key=settings.openai_api_key,
-        temperature=temperature if model_name.startswith("openai:gpt") else None,
+        api_key=settings.gemini_api_key if is_gemini else settings.openai_api_key,
+        temperature=temperature,
+        model_kwargs={"reasoning_effort": "minimal"} if is_gpt_5 else {},
     )
 
 

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     """Manages application settings and environment variables."""
 
     openai_api_key: OpenAIAPIKey = Field(default=None, alias="OPENAI_API_KEY")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     exa_api_key: ExaAPIKey = Field(default=None, alias="EXA_API_KEY")
     tavily_api_key: TavilyAPIKey = Field(default=None, alias="TAVILY_API_KEY")
     redis_uri: RedisDsn = Field(default="redis://localhost:6379", alias="REDIS_URL")

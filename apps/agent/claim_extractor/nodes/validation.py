@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from claim_extractor.prompts import VALIDATION_HUMAN_PROMPT, VALIDATION_SYSTEM_PROMPT
 from claim_extractor.schemas import PotentialClaim, State, ValidatedClaim
 from utils import get_llm, call_llm_with_structured_output
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ async def _validate_claim(potential_claim: PotentialClaim) -> ValidatedClaim:
     ]
 
     # Use zero-temp LLM for consistent results
-    llm = get_llm()  # Uses default temperature for consistent results
+    llm = get_llm(model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     # Call the LLM
     response = await call_llm_with_structured_output(

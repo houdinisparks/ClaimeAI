@@ -8,6 +8,7 @@ import itertools
 import logging
 from typing import Dict, List
 
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from pydantic import BaseModel, Field
 
 from claim_extractor.config import DECOMPOSITION_CONFIG
@@ -48,7 +49,7 @@ async def _decomposition_stage(
     logger.debug(f"Processing decomposition for: '{sentence}'")
 
     # Get zero-temp LLM for consistent results
-    llm = get_llm(completions=COMPLETIONS)
+    llm = get_llm(completions=COMPLETIONS, model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     # Get context without following sentences
     original_context = (
