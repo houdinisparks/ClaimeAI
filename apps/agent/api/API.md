@@ -140,12 +140,15 @@ curl -X POST "http://localhost:8000/extract-claims" \
 
 ### Fact Check
 
+Runs the complete fact-checking workflow as a background job. Results are sent to the callback URL when processing completes.
+
 ```bash
 curl -X POST "http://localhost:8000/fact-check" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key-here" \
   -d '{
-    "answer": "The Eiffel Tower is 330 meters tall and was completed in 1889."
+    "answer": "The Eiffel Tower is 330 meters tall and was completed in 1889.",
+    "callback_url": "https://your-app.com/api/fact-check-callback"
   }'
 ```
 

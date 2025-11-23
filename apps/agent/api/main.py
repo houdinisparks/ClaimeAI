@@ -4,6 +4,8 @@ import logging
 import os
 import asyncio
 import httpx
+import json
+from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 
@@ -144,6 +146,13 @@ async def health():
     }
 
 
+def serialize_datetime(obj):
+    """JSON serializer for datetime objects."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
 async def process_fact_check_job(text: str, callback_url: Optional[str] = None, job_id: Optional[str] = None):
     """Background task to process fact-checking and send results to callback URL."""
     try:
@@ -161,10 +170,30 @@ async def process_fact_check_job(text: str, callback_url: Optional[str] = None, 
         
         # Remove "text" field from sources in verified_claims (safe navigation)
         final_report_dict = None
+        summary = {
+            "supported": 0,
+            "insufficient_info": 0,
+            "conflicting_evidence": 0,
+            "refuted": 0
+        }
+        
         if final_report:
             final_report_dict = final_report.model_dump()
             verified_claims = final_report_dict.get("verified_claims", [])
+            
+            # Calculate summary counts
             for claim in verified_claims:
+                verdict = claim.get("result", "").lower()
+                if verdict == "supported":
+                    summary["supported"] += 1
+                elif verdict == "insufficient information":
+                    summary["insufficient_info"] += 1
+                elif verdict == "conflicting evidence":
+                    summary["conflicting_evidence"] += 1
+                elif verdict == "refuted":
+                    summary["refuted"] += 1
+                
+                # Remove "text" field from sources
                 sources = claim.get("sources", [])
                 for source in sources:
                     source.pop("text", None)  # Remove "text" key if it exists
@@ -172,12 +201,18 @@ async def process_fact_check_job(text: str, callback_url: Optional[str] = None, 
         workflow_result = {
             "status": "success",
             "job_id": job_id,
+            "summary": summary,
             "result": {
                 "final_report": final_report_dict,
                 "claims_extracted": len(result.get("extracted_claims", [])),
                 "claims_verified": len(result.get("verification_results", [])),
             },
         }
+        
+        # Convert to JSON string and back to handle datetime serialization
+        workflow_result_json = json.loads(json.dumps(workflow_result, default=serialize_datetime))
+
+        logger.info(f"[Job {job_id}] Fact-check result: {json.dumps(workflow_result, default=serialize_datetime)}")
 
         logger.info(f"[Job {job_id}] Fact-check completed successfully")
 
@@ -188,7 +223,7 @@ async def process_fact_check_job(text: str, callback_url: Optional[str] = None, 
                     logger.info(f"[Job {job_id}] Sending results to callback URL: {callback_url}")
                     response = await client.post(
                         callback_url,
-                        json=workflow_result,
+                        json=workflow_result_json,
                         headers={"Content-Type": "application/json"}
                     )
                     response.raise_for_status()

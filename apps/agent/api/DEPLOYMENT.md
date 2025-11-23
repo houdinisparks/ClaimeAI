@@ -100,12 +100,13 @@ curl -X POST https://claime-agent-api.fly.dev/extract-claims \
     "text": "The Earth revolves around the Sun."
   }'
 
-# Fact check (requires API key)
+# Fact check (requires API key) - runs as background job
 curl -X POST https://claime-agent-api.fly.dev/fact-check \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secure-api-key-here" \
   -d '{
-    "answer": "Climate change is causing global temperatures to rise."
+    "answer": "Climate change is causing global temperatures to rise.",
+    "callback_url": "https://your-app.com/api/fact-check-callback"
   }'
 ```
 
