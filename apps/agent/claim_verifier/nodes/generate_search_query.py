@@ -6,6 +6,7 @@ Generates optimized queries to find evidence related to a claim.
 import logging
 from typing import Dict
 
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from pydantic import BaseModel, Field
 
 from claim_verifier.prompts import (
@@ -48,7 +49,7 @@ async def generate_search_query_node(
         f"(Iteration: {iteration_count + 1})"
     )
 
-    llm = get_llm()
+    llm = get_llm(model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     # Build context for iterative searching
     context_parts = []

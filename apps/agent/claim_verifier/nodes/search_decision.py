@@ -6,6 +6,7 @@ Assesses evidence sufficiency and confidence to decide next steps.
 import logging
 from typing import Literal
 
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from langgraph.graph.state import Command
 from pydantic import BaseModel, Field
 from utils import call_llm_with_structured_output, get_llm
@@ -58,7 +59,7 @@ async def search_decision_node(
         return Command(goto="evaluate_evidence")
 
     # Assess evidence sufficiency with LLM
-    llm = get_llm()
+    llm = get_llm(model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     evidence_summary = "\n".join(
         [

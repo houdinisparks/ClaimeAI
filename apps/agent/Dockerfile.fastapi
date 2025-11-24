@@ -1,0 +1,85 @@
+# Multi-stage Dockerfile for FastAPI wrapper with optimized image size
+# Stage 1: Builder - Install dependencies
+FROM python:3.11-slim AS builder
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POETRY_VERSION=1.7.1 \
+    POETRY_HOME=/opt/poetry \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_VIRTUALENVS_CREATE=true
+
+# Install system dependencies and Poetry
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    && curl -sSL https://install.python-poetry.org | python3 - \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Poetry to PATH
+ENV PATH="$POETRY_HOME/bin:$PATH"
+
+# Set working directory
+WORKDIR /app
+
+# Copy only dependency files first (for better caching)
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies only (no root package)
+# This creates a .venv directory with all dependencies
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# Stage 2: Runtime - Create minimal runtime image
+FROM python:3.11-slim AS runtime
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app:$PYTHONPATH"
+
+# Install only essential runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+
+# Copy application code
+COPY --chown=appuser:appuser claim_extractor/ ./claim_extractor/
+COPY --chown=appuser:appuser claim_verifier/ ./claim_verifier/
+COPY --chown=appuser:appuser fact_checker/ ./fact_checker/
+COPY --chown=appuser:appuser utils/ ./utils/
+COPY --chown=appuser:appuser api/ ./api/
+COPY --chown=appuser:appuser security/ ./security/
+
+# Switch to non-root user
+USER appuser
+
+# Download NLTK data during build (not at runtime)
+RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True); nltk.download('punkt', quiet=True)"
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()" || exit 1
+
+# Run the FastAPI application
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -6,6 +6,7 @@ Analyzes evidence snippets to assess if a claim is supported, refuted, or inconc
 import logging
 from typing import List
 
+from claim_verifier.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from pydantic import BaseModel, Field
 from utils import (
     call_llm_with_structured_output,
@@ -76,6 +77,7 @@ async def evaluate_evidence_node(state: ClaimVerifierState) -> dict:
         system_prompt=system_prompt,
         human_prompt_template=EVIDENCE_EVALUATION_HUMAN_PROMPT,
         format_evidence_func=_format_evidence_snippets,
+        max_tokens=400000,  # GPT-5 has 500k TPM limit, using 400k to be safe
     )
 
     messages = [
@@ -89,7 +91,7 @@ async def evaluate_evidence_node(state: ClaimVerifierState) -> dict:
         ),
     ]
 
-    llm = get_llm(model_name="openai:gpt-4.1")
+    llm = get_llm(model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     response = await call_llm_with_structured_output(
         llm=llm,

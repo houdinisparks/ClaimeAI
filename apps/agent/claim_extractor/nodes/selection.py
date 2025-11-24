@@ -6,6 +6,7 @@ Filters out fluff and keeps only sentences with factual claims.
 import logging
 from typing import Dict, List, Optional, Tuple
 
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from utils import call_llm_with_structured_output, get_llm, process_with_voting
@@ -125,7 +126,7 @@ async def selection_node(state: State) -> Dict[str, List[SelectedContent]]:
         return {}
 
     # Get LLM with temperature 0.2 since we're using multiple completions
-    llm = get_llm(completions=COMPLETIONS)
+    llm = get_llm(completions=COMPLETIONS, model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     # Process all sentences with voting
     selected_contents = await process_with_voting(

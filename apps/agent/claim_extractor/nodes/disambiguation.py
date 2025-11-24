@@ -6,6 +6,7 @@ Clarifies pronouns and other references so claims make sense on their own.
 import logging
 from typing import Dict, List, Optional, Tuple
 
+from claim_extractor.llm.config import DEFAULT_TEMPERATURE, MODEL_NAME
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
@@ -126,7 +127,7 @@ async def disambiguation_node(state: State) -> Dict[str, List[DisambiguatedConte
         return {}
 
     # Get LLM with temperature 0.2 for multiple completions
-    llm = get_llm(completions=COMPLETIONS)
+    llm = get_llm(completions=COMPLETIONS, model_name=MODEL_NAME, temperature=DEFAULT_TEMPERATURE)
 
     # Process all selected contents with voting
     disambiguated_contents = await process_with_voting(
